@@ -1,6 +1,6 @@
 # Pose Graph Optimization
 
-A ROS2 package for LiDAR-based pose graph optimization with loop closure detection, designed to work as a backend for [FAST-LIO](https://github.com/hku-mars/FAST_LIO). This package generates globally consistent, drift-corrected maps with **dynamic object removal** using ground segmentation and point cloud clustering.
+A ROS2 package for LiDAR-based pose graph optimization with loop closure detection, designed to work as a backend for [FAST-LIO2 Mapping & Localization](https://github.com/Kimkyuwon/fast_lio2_mapping_and_localization). This package generates globally consistent, drift-corrected maps with **dynamic object removal** using ground segmentation and point cloud clustering.
 
 ## Overview
 
@@ -84,7 +84,7 @@ Save Service (save_trajectory)
 
 | Package | Purpose |
 |---------|---------|
-| [fast_lio](https://github.com/hku-mars/FAST_LIO) | LiDAR odometry & keyframe source |
+| [fast_lio](https://github.com/Kimkyuwon/fast_lio2_mapping_and_localization) | LiDAR odometry & keyframe source |
 | [nano_gicp](https://github.com/vectr-ucla/direct_lidar_odometry) | Fast GICP for loop edge estimation |
 | [patchworkpp](https://github.com/url-kaist/patchwork-plusplus) | Ground segmentation |
 | `pcl_ros` | PCL–ROS2 bridge |
