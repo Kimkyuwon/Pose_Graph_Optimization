@@ -278,13 +278,13 @@ Once mapping is complete, call the save service:
 
 ```bash
 ros2 service call /save_trajectory pose_graph_optimization/srv/SaveMap \
-  "{directory_name: 'Campus1'}"
+  "{directory_name: 'MyMap'}"
 ```
 
-This generates the following files under `<package_root>/Campus1/`:
+This generates the following files under `<package_root>/MyMap/`:
 
 ```
-Campus1/
+MyMap/
 ├── OptimizedMap.pcd      # Full map with PGO-corrected poses
 ├── StaticMap.pcd         # Map with dynamic objects removed (ground included)
 ├── OptimizedNGMap.pcd    # Non-ground map before dynamic removal
