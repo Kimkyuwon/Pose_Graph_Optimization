@@ -34,6 +34,7 @@ FAST-LIO (Odometry)
 - **Ground Segmentation**: [PatchWork++](https://github.com/url-kaist/patchwork-plusplus) for accurate ground/non-ground separation
 - **Dynamic Object Removal**: Curved Voxel Clustering (CVC) + cross-frame consistency check to detect and remove moving objects
 - **Multi-LiDAR Support**: Velodyne, Ouster, Hesai LiDARs
+- **Designed for integration with** [FAST-LIO2 Mapping & Localization](https://github.com/Kimkyuwon/fast_lio2_mapping_and_localization) — a modified version of FAST-LIO2 extended with DOP-based scan matching confidence evaluation
 
 ## System Architecture
 
@@ -111,8 +112,9 @@ make -j$(nproc) && sudo make install
 ```bash
 cd ~/your_ws/src
 
-# FAST-LIO (required as keyframe source)
-git clone https://github.com/hku-mars/FAST_LIO.git --recursive
+# FAST-LIO (modified version with DOP-based scan matching confidence evaluation)
+# This is a custom fork extended by Kyu-Won Kim from the original FAST-LIO2
+git clone https://github.com/Kimkyuwon/fast_lio2_mapping_and_localization.git --recursive fast_lio
 
 # Nano-GICP
 git clone https://github.com/vectr-ucla/direct_lidar_odometry.git
@@ -327,8 +329,22 @@ For each loop candidate:
 
 ## License
 
-BSD
+This software is licensed under the **GNU General Public License v2.0 (GPL-2.0)**, in accordance with the license of the primary dependency, [FAST-LIO2 Mapping & Localization](https://github.com/Kimkyuwon/fast_lio2_mapping_and_localization) (GPL-2.0).
+
+Other dependencies and their licenses:
+
+| Package | License |
+|---------|---------|
+| [FAST-LIO2 (Kimkyuwon fork)](https://github.com/Kimkyuwon/fast_lio2_mapping_and_localization) | GPL-2.0 |
+| [Nano-GICP](https://github.com/vectr-ucla/direct_lidar_odometry) | MIT |
+| [PatchWork++](https://github.com/url-kaist/patchwork-plusplus) | BSD 2-Clause |
+| [nanoflann](https://github.com/jlblancoc/nanoflann) | BSD |
+| PCL, GTSAM, Eigen3 | BSD / BSD-like |
+
+> **Non-commercial use notice**: This software is primarily developed for academic and non-commercial research purposes. For commercial use, please contact the author.
+
+See the [GPL-2.0 license text](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html) for full terms and conditions. In summary, you are free to use, modify, and distribute this software, provided that any derivative work is also distributed under GPL-2.0 with source code made available.
 
 ## Maintainer
 
-kkw (kkw1125@hdec.co.kr)
+Kyu-Won Kim (kimku1125@naver.com)

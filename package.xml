@@ -7,9 +7,9 @@
     Pose graph optimization package using GTSAM library. 
   </description>
 
-  <maintainer email="kkw1125@hdec.co.kr">kkw</maintainer>
+  <maintainer email="kimku1125@naver.com">Kyu-Won Kim</maintainer>
 
-  <license>BSD</license>
+  <license>GPL-2.0</license>
   
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
