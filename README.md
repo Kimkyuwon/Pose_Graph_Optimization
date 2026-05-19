@@ -239,19 +239,32 @@ Parameters are declared in the node and loaded from the FAST-LIO config YAML.
 
 ## Running
 
-### With FAST-LIO (Recommended)
+> **Required**: [FAST-LIO2 Mapping & Localization](https://github.com/Kimkyuwon/fast_lio2_mapping_and_localization) is **required** to run this package. This node receives keyframes from `fastlio_mapping` via the `/key_frame` topic and cannot operate standalone.
 
-Run FAST-LIO and this node together. Ensure your FAST-LIO config YAML includes the `posegraph.*` parameters listed above.
+### Launch
+
+`fast_lio`의 `mapping.launch.py`는 `fastlio_mapping`과 `posegraphoptimization` 두 노드를 **동시에 실행**하도록 구성되어 있습니다. 아래 명령 하나로 두 노드가 함께 시작됩니다.
 
 ```bash
-# Terminal 1: FAST-LIO
-ros2 run fast_lio fastlio_mapping --ros-args \
-  --params-file /path/to/fast_lio/config/your_lidar_pg.yaml
-
-# Terminal 2: Pose Graph Optimization
-ros2 run pose_graph_optimization posegraphoptimization --ros-args \
-  --params-file /path/to/fast_lio/config/your_lidar_pg.yaml
+ros2 launch fast_lio mapping.launch.py config_file:=<your_lidar_config>.yaml
 ```
+
+내부 구성 (`mapping.launch.py`):
+```python
+fast_lio_node = Node(package='fast_lio',                  executable='fastlio_mapping')
+pgo_node      = Node(package='pose_graph_optimization',   executable='posegraphoptimization')
+# 두 노드는 동일한 config YAML을 파라미터로 공유
+```
+
+두 노드는 동일한 config YAML 파일을 공유하므로, config 파일에 `posegraph.*` 파라미터가 포함되어 있어야 합니다.
+
+Config 파일 선택 예시:
+
+| LiDAR | Config File |
+|-------|-------------|
+| Hesai Pandar 32 | `mapping_config.yaml` |
+| Velodyne VLP-16 | `velodyne.yaml` |
+| Ouster OS2-64 | `ouster64.yaml` |
 
 ### Play a ROS2 bag
 
