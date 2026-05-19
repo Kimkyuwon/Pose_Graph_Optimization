@@ -243,22 +243,22 @@ Parameters are declared in the node and loaded from the FAST-LIO config YAML.
 
 ### Launch
 
-`fast_lio`의 `mapping.launch.py`는 `fastlio_mapping`과 `posegraphoptimization` 두 노드를 **동시에 실행**하도록 구성되어 있습니다. 아래 명령 하나로 두 노드가 함께 시작됩니다.
+`mapping.launch.py` from the `fast_lio` package is configured to launch both `fastlio_mapping` and `posegraphoptimization` **simultaneously**. A single command starts both nodes together.
 
 ```bash
 ros2 launch fast_lio mapping.launch.py config_file:=<your_lidar_config>.yaml
 ```
 
-내부 구성 (`mapping.launch.py`):
+Internal structure of `mapping.launch.py`:
 ```python
 fast_lio_node = Node(package='fast_lio',                  executable='fastlio_mapping')
 pgo_node      = Node(package='pose_graph_optimization',   executable='posegraphoptimization')
-# 두 노드는 동일한 config YAML을 파라미터로 공유
+# Both nodes share the same config YAML as parameters
 ```
 
-두 노드는 동일한 config YAML 파일을 공유하므로, config 파일에 `posegraph.*` 파라미터가 포함되어 있어야 합니다.
+Both nodes share the same config YAML file, so the config must include the `posegraph.*` parameters listed above.
 
-Config 파일 선택 예시:
+Example config file selection:
 
 | LiDAR | Config File |
 |-------|-------------|
