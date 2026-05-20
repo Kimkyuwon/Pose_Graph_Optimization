@@ -348,7 +348,7 @@ Other dependencies and their licenses:
 | Package | License |
 |---------|---------|
 | [FAST-LIO Localization and Mapping](https://github.com/Kimkyuwon/fast_lio2_mapping_and_localization) | GPL-2.0 |
-| [Nano-GICP](https://github.com/vectr-ucla/direct_lidar_odometry) | MIT |
+| [Nano-GICP](https://github.com/vectr-ucla/direct_lidar_odometry/tree/nano_gicp) | MIT |
 | [PatchWork++](https://github.com/url-kaist/patchwork-plusplus) | BSD 2-Clause |
 | [nanoflann](https://github.com/jlblancoc/nanoflann) | BSD |
 | PCL, GTSAM, Eigen3 | BSD / BSD-like |
