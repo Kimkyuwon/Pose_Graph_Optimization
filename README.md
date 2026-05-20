@@ -277,8 +277,7 @@ ros2 bag play your_dataset.bag
 Once mapping is complete, call the save service:
 
 ```bash
-ros2 service call /save_trajectory pose_graph_optimization/srv/SaveMap \
-  "{directory_name: 'MyMap'}"
+ros2 service call /save_trajectory pose_graph_optimization/srv/SaveMap "{directory_name: 'MyMap'}"
 ```
 
 This generates the following files under `<package_root>/MyMap/`:
