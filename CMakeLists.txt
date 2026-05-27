@@ -87,10 +87,6 @@ set(dependencies
   patchworkpp
 )
 
-set(msg_files
-  "msg/Frame.msg"
-)
-
 set(srv_files
   "srv/SaveMap.srv"
 )
