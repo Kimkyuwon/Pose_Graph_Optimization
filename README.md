@@ -10,7 +10,7 @@ FAST-LIO (Odometry)
        │ /key_frame  (fast_lio::msg::Frame)
        ▼
 ┌─────────────────────────────────────────────────────┐
-│              Pose Graph Optimization Node            │
+│              Pose Graph Optimization Node           │
 │                                                     │
 │  Thread 1: Loop Closure Detection (SOLiD)           │
 │  Thread 2: Loop Edge Calculation (Nano-GICP + DOP)  │
