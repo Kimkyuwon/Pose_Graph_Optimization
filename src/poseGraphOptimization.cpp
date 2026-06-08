@@ -117,7 +117,7 @@ gtsam::ISAM2 *isam;
 gtsam::Values isamCurrentEstimate;
 gtsam::Vector odomNoiseVector6(6);
 gtsam::Vector robustNoiseVector6(6); // gtsam::Pose3 factor has 6 elements (6D)
-double loopNoiseScore = 0.5;
+Eigen::Matrix<double, 6, 1> diag_reg;
 noiseModel::Diagonal::shared_ptr priorNoise;
 noiseModel::Diagonal::shared_ptr odomNoise;
 noiseModel::Base::shared_ptr robustLoopNoise;
@@ -171,9 +171,9 @@ void initNoises( void )
     odomNoiseVector6 << 1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-4;
     odomNoise = noiseModel::Diagonal::Variances(odomNoiseVector6);
 
-    robustNoiseVector6 << loopNoiseScore, loopNoiseScore, loopNoiseScore, loopNoiseScore, loopNoiseScore, loopNoiseScore;
+    robustNoiseVector6 << 0.5, 0.5, 0.5, 0.5, 0.5, 0.5;
     robustLoopNoise = gtsam::noiseModel::Robust::Create(
-                    gtsam::noiseModel::mEstimator::Cauchy::Create(1.0), // optional: replacing Cauchy by DCS or GemanMcClure is okay but Cauchy is empirically good.
+                    gtsam::noiseModel::mEstimator::Cauchy::Create(2.0), // optional: replacing Cauchy by DCS or GemanMcClure is okay but Cauchy is empirically good.
                     gtsam::noiseModel::Diagonal::Variances(robustNoiseVector6) );
 } // initNoises
                 
@@ -288,23 +288,9 @@ std::optional<gtsam::Pose3> doGICPVirtualRelative( int _loop_kf_idx, int _curr_k
     pcl::transformPointCloud(*cureKeyframeCloud, *matchKeyframeCloud, edge_TF);
 
     Eigen::Matrix<double, 6, 6> hessian = gicp.getHessian();
-    
-    typedef Eigen::EigenSolver<Eigen::Matrix<double, 6, 6>> EigenSolver;
-    EigenSolver es;
-    Eigen::Matrix<double, 6, 6> hessian_inv = hessian.inverse();
-    es.compute(hessian_inv);
-    
-    Eigen::VectorXcd eigenvalues = es.eigenvalues();
-
-    std::complex<double> max_eigenvalue = eigenvalues(0);
-    for (int i = 1; i < eigenvalues.size(); ++i) 
-    {
-        if (eigenvalues(i).real() > max_eigenvalue.real()) {
-
-            max_eigenvalue = eigenvalues(i);
-        }
-    }
-    double max_eigen = sqrt(fabs(max_eigenvalue.real()));
+    // PD 보장을 위한 최소 정규화 + H 직접 입력
+    double lambda = 1e-6 * hessian.diagonal().array().abs().maxCoeff();
+    Eigen::Matrix<double, 6, 6> hessian_reg = hessian + lambda * Eigen::Matrix<double, 6, 6>::Identity();
 
     kdtree->setInputCloud(targetKeyframeCloud);
     pcl::PointCloud<pcl::PointXYZI>::Ptr MatchedCloud (new pcl::PointCloud<pcl::PointXYZI>());
@@ -355,11 +341,12 @@ std::optional<gtsam::Pose3> doGICPVirtualRelative( int _loop_kf_idx, int _curr_k
         gtsam::Pose3 poseFrom = Pose3(Rot3::RzRyRx(0.0, 0.0, 0.0), Point3(0.0, 0.0, 0.0));
         gtsam::Pose3 poseTo = Pose3(Rot3::RzRyRx(roll, pitch, yaw), Point3(edge_TF(0,3), edge_TF(1,3), edge_TF(2,3)));
 
-        loopNoiseScore = max_eigen; // constant is ok...
-        robustNoiseVector6 << loopNoiseScore, loopNoiseScore, loopNoiseScore, loopNoiseScore, loopNoiseScore, loopNoiseScore;
+        Eigen::Matrix<double, 6, 1> diag_reg = hessian_reg.diagonal().cwiseInverse();
+        robustNoiseVector6 << diag_reg(0), diag_reg(1), diag_reg(2), diag_reg(3), diag_reg(4), diag_reg(5);
+        auto info_model = gtsam::noiseModel::Gaussian::Information(hessian_reg);
+
         robustLoopNoise = gtsam::noiseModel::Robust::Create(
-        gtsam::noiseModel::mEstimator::Cauchy::Create(2.0), // optional: replacing Cauchy by DCS or GemanMcClure is okay but Cauchy is empirically good.
-        gtsam::noiseModel::Diagonal::Variances(robustNoiseVector6));
+        gtsam::noiseModel::mEstimator::Cauchy::Create(2.0), info_model);
 
         isLoopClosed = true;
         return poseFrom.between(poseTo);
@@ -579,8 +566,8 @@ void process_edge(void)
                 {
                     edge_stream << prev_node_idx << " " << curr_node_idx << " " << relative_pose.translation().x() << " " << relative_pose.translation().y() << " " 
                     << relative_pose.translation().z() << " " << relative_pose.rotation().roll() << " " << relative_pose.rotation().pitch() << " " 
-                    << relative_pose.rotation().yaw() << " " << loopNoiseScore << " " << loopNoiseScore << " " << loopNoiseScore << " " << loopNoiseScore << " " 
-                    << loopNoiseScore << " " << loopNoiseScore << endl;
+                    << relative_pose.rotation().yaw() << " " << diag_reg(0) << " " << diag_reg(1) << " " << diag_reg(2) << " " << diag_reg(3) << " " 
+                    << diag_reg(4) << " " << diag_reg(5) << endl;
                 }
             }
             prev_loop_pair = loop_idx_pair;
