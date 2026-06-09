@@ -348,7 +348,9 @@ For each loop candidate:
 3. **Cross-frame consistency**: Each cluster is checked against a local sub-map built from nearby frames. Clusters with < 95% spatial overlap are flagged as dynamic and removed.
 
 <div align="center">
+
 *Red: map without dynamic object removal / Blue: map with dynamic object removal applied*
+
 ![object_removal](doc/object_removal.png)
 </div>
 
