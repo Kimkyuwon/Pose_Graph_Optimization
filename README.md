@@ -2,6 +2,8 @@
 
 A ROS2 package for LiDAR-based pose graph optimization with loop closure detection, designed to work as a backend for [FAST-LIO2 Mapping & Localization](https://github.com/Kimkyuwon/fast_lio2_mapping_and_localization). This package generates globally consistent, drift-corrected maps with **dynamic object removal** using ground segmentation and point cloud clustering.
 
+![pipeline](doc/pipeline.png)
+
 ## Overview
 
 ```
