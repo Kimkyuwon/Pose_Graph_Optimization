@@ -331,7 +331,7 @@ For each loop candidate:
 3. **DOP ratio** (`matching_dop / max(src_dop, tgt_dop)`) filters out geometrically degenerate matches (e.g., long corridors).
 
 <div align="center">
-<img src="doc/loopdop.png" width="500"/>
+<img src="doc/loopdop.png" width="800"/>
 </div>
 
 ### Pose Graph: GTSAM iSAM2
@@ -346,6 +346,12 @@ For each loop candidate:
 1. **Ground segmentation**: PatchWork++ separates ground and non-ground points per frame.
 2. **CVC clustering**: Curved Voxel Clustering groups non-ground points into objects.
 3. **Cross-frame consistency**: Each cluster is checked against a local sub-map built from nearby frames. Clusters with < 95% spatial overlap are flagged as dynamic and removed.
+
+*Red: map without dynamic object removal / Blue: map with dynamic object removal applied*
+
+<div align="center">
+<img src="doc/object_removal.png" width="800"/>
+</div>
 
 ## License
 
