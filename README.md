@@ -318,8 +318,7 @@ from_idx to_idx tx ty tz roll pitch yaw cov0 cov1 cov2 cov3 cov4 cov5
 ### Loop Closure: SOLiD
 
 SOLiD encodes each keyframe scan into a compact 3D histogram using (Range, Angle, Height) bins. Loop candidates are retrieved via KD-tree nearest-neighbor search on the descriptor space. The similarity score threshold is controlled by `r_solid_thres`.
-
-![loop closure](doc/loopclosure.gif)
+<img src="doc/loopclosure.gif" width="500"/>
 
 ### Loop Verification: DOP + GICP
 
@@ -327,6 +326,7 @@ For each loop candidate:
 1. **Nano-GICP** registers the current scan against the loop candidate.
 2. The **Hessian matrix** of the GICP solution is analysed — its maximum eigenvalue serves as the noise weight for the loop factor.
 3. **DOP ratio** (`matching_dop / max(src_dop, tgt_dop)`) filters out geometrically degenerate matches (e.g., long corridors).
+<img src="doc/loopdop.png" width="500"/>
 
 ### Pose Graph: GTSAM iSAM2
 
