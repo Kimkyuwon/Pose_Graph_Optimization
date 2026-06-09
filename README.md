@@ -347,10 +347,9 @@ For each loop candidate:
 2. **CVC clustering**: Curved Voxel Clustering groups non-ground points into objects.
 3. **Cross-frame consistency**: Each cluster is checked against a local sub-map built from nearby frames. Clusters with < 95% spatial overlap are flagged as dynamic and removed.
 
-*Red: map without dynamic object removal / Blue: map with dynamic object removal applied*
-
 <div align="center">
-<img src="doc/object_removal.png" width="800"/>
+*Red: map without dynamic object removal / Blue: map with dynamic object removal applied*
+![object_removal](doc/object_removal.png)
 </div>
 
 ## License
