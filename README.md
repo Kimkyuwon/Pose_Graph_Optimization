@@ -319,6 +319,8 @@ from_idx to_idx tx ty tz roll pitch yaw cov0 cov1 cov2 cov3 cov4 cov5
 
 SOLiD encodes each keyframe scan into a compact 3D histogram using (Range, Angle, Height) bins. Loop candidates are retrieved via KD-tree nearest-neighbor search on the descriptor space. The similarity score threshold is controlled by `r_solid_thres`.
 
+![loop closure](doc/loopclosure.gif)
+
 ### Loop Verification: DOP + GICP
 
 For each loop candidate:
