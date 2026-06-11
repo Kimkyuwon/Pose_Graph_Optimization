@@ -324,7 +324,7 @@ SOLiD encodes each keyframe scan into a compact 3D histogram using (Range, Angle
 
 For each loop candidate:
 1. **Nano-GICP** registers the current scan against the loop candidate.
-2. The **Hessian matrix** of the GICP solution is analysed — its maximum eigenvalue serves as the noise weight for the loop factor.
+2. The **Hessian matrix** of the GICP solution is analysed — its eigenvalue serves as the noise weight for the loop factor.
 3. **DOP ratio** (`matching_dop / max(src_dop, tgt_dop)`) filters out geometrically degenerate matches (e.g., long corridors).
 
 <div align="center">
