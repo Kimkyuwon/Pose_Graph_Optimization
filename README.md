@@ -162,7 +162,6 @@ source install/setup.bash
 | Service | Type | Description |
 |---------|------|-------------|
 | `save_trajectory` | `pose_graph_optimization/srv/SaveMap` | Save optimized maps to specified directory |
-| `cancel_save_trajectory` | `std_srvs/srv/Trigger` | Cancel an ongoing save operation |
 
 #### SaveMap Service
 
