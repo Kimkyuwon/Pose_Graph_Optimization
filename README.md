@@ -263,14 +263,6 @@ pgo_node      = Node(package='pose_graph_optimization',   executable='posegrapho
 
 Both nodes share the same config YAML file, so the config must include the `posegraph.*` parameters listed above.
 
-Example config file selection:
-
-| LiDAR | Config File |
-|-------|-------------|
-| Hesai Pandar 32 | `mapping_config.yaml` |
-| Velodyne VLP-16 | `velodyne.yaml` |
-| Ouster OS2-64 | `ouster64.yaml` |
-
 ### Play a ROS2 bag
 
 ```bash
@@ -328,7 +320,7 @@ SOLiD encodes each keyframe scan into a compact 3D histogram using (Range, Angle
 <img src="doc/loopclosure.gif" width="500"/>
 </div>
 
-### Loop Verification: DOP + GICP
+### Loop Verification: NanoGICP + DOP
 
 For each loop candidate:
 1. **Nano-GICP** registers the current scan against the loop candidate.
