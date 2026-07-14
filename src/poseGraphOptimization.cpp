@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <condition_variable>
 #include <unordered_set>
+#include <unordered_map>
 #include <chrono>
 #include <rclcpp/rclcpp.hpp>
 #include <Eigen/Core>
@@ -60,14 +61,18 @@
 #include <nano_gicp/nano_gicp.hpp>
 
 #include "patchwork/patchworkpp.h"
-#include "CurvedVoxelClustering.hpp"
+
+#include <ufo/map/integration/integration.hpp>
+#include <ufo/map/integration/integration_parameters.hpp>
+#include <ufo/map/point.hpp>
+#include <ufo/map/point_cloud.hpp>
+#include <ufo/map/ufomap.hpp>
 
 using namespace std;
 
 using namespace gtsam;
 
 using gtsam::symbol_shorthand::X; // Pose3 (x,y,z,r,p,y)
-using CVCHandler = perception::CurvedVoxelClustering<pcl::PointXYZI>;
 
 struct Pose6 {
   double x;
@@ -129,6 +134,12 @@ double LIDAR_HOR_MIN = -180.0F;
 double LIDAR_HOR_MAX = 180.0F;
 std::unique_ptr<patchwork::PatchWorkpp> Patchworkpp_;
 std::unique_ptr<patchwork::PatchWorkpp> Patchworkpp_Fine;
+float integration_min_range = 1.0f;
+float integration_max_range = 80.0f;
+float dufo_tau_high = 0.5f;
+float dufo_tau_low = 0.1f;
+int dufo_max_cluster_points = 5000;
+float dufo_max_cluster_bbox = 15.0f;
 
 visualization_msgs::msg::Marker loopLine;
 nav_msgs::msg::Path PGO_path;
@@ -729,24 +740,19 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr generateOptimizedMap()
     return finalMapCloud;
 }
 
+
 pcl::PointCloud<pcl::PointXYZI>::Ptr generateStaticMap()
-{    
-    // Clear screen and show initial message
-    std::cout << "\033[2J\033[H";  // Clear screen and move cursor to top
-    std::cout << "Generating static map with optimized processing..." << std::endl;
-    
-    int total_frames = keyframePosesUpdated.size();    
-    
-    const int batch_size = 1; // Process 4 frames at a time to reduce memory usage
-    int num_batches = (total_frames + batch_size - 1) / batch_size;
-    
-    for (int k = 0; k < total_frames; k++) 
+{
+    std::cout << "\033[2J\033[H";
+    std::cout << "Generating static map with DUFOMap..." << std::endl;
+
+    int total_frames = keyframePosesUpdated.size();
+
+    // Phase 1: Ground segmentation (saves _ground/_nonground)
+    for (int k = 0; k < total_frames; k++)
     {
         if (g_cancel_save.load()) throw SaveCancelledException{};
 
-        // Create thread-local copies to avoid sharing issues
-        Eigen::Matrix4f TF = createTransformMatrix(keyframePosesUpdated[k]);
-        
         pcl::PointCloud<pcl::PointXYZI>::Ptr cureKeyframeCloud = loadPointCloud(ScansDirectory + std::to_string(k) + ".pcd");
 
         if (cureKeyframeCloud->empty())
@@ -754,12 +760,10 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr generateStaticMap()
             printf("Warning: Frame %d is empty\n", k);
             continue;
         }
-        
-        // NaN 제거
+
         std::vector<int> indices;
         pcl::removeNaNFromPointCloud(*cureKeyframeCloud, *cureKeyframeCloud, indices);
 
-        // NaN 제거 후 포인트 클라우드가 비어있는지 확인
         if (cureKeyframeCloud->empty())
         {
             printf("Warning: Frame %d is empty after NaN removal\n", k);
@@ -774,14 +778,12 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr generateStaticMap()
 
         auto ground_indices = Patchworkpp_->getGroundIndices();
         auto nonground_indices = Patchworkpp_->getNongroundIndices();
-        double time_taken = Patchworkpp_->getTimeTaken();
 
         pcl::PointCloud<pcl::PointXYZI>::Ptr tempGroundCloud(new pcl::PointCloud<pcl::PointXYZI>());
-        // Ground와 non-ground 포인트 분리
-        for (int idx = 0; idx < ground_indices.size(); idx++) 
+        for (int idx = 0; idx < ground_indices.size(); idx++)
         {
             int point_idx = ground_indices[idx];
-            if (point_idx >= 0 && point_idx < cureKeyframeCloud->size()) 
+            if (point_idx >= 0 && point_idx < cureKeyframeCloud->size())
             {
                 tempGroundCloud->push_back(cureKeyframeCloud->points[point_idx]);
             }
@@ -790,13 +792,12 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr generateStaticMap()
         for (int idx = 0; idx < nonground_indices.size(); idx++)
         {
             int point_idx = nonground_indices[idx];
-            if (point_idx >= 0 && point_idx < cureKeyframeCloud->size()) 
+            if (point_idx >= 0 && point_idx < cureKeyframeCloud->size())
             {
                 cureNonGroundCloud->push_back(cureKeyframeCloud->points[point_idx]);
             }
         }
 
-        // tempGroundCloud가 비어있는지 확인
         if (tempGroundCloud->empty())
         {
             printf("Warning: Frame %d has no ground points\n", k);
@@ -807,11 +808,10 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr generateStaticMap()
         Patchworkpp_Fine->estimateGround(cloud);
         ground_indices = Patchworkpp_Fine->getGroundIndices();
         nonground_indices = Patchworkpp_Fine->getNongroundIndices();
-        // Ground와 non-ground 포인트 분리
-        for (int idx = 0; idx < ground_indices.size(); idx++) 
+        for (int idx = 0; idx < ground_indices.size(); idx++)
         {
             int point_idx = ground_indices[idx];
-            if (point_idx >= 0 && point_idx < tempGroundCloud->size()) 
+            if (point_idx >= 0 && point_idx < tempGroundCloud->size())
             {
                 cureGroundCloud->push_back(tempGroundCloud->points[point_idx]);
             }
@@ -820,161 +820,117 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr generateStaticMap()
         for (int idx = 0; idx < nonground_indices.size(); idx++)
         {
             int point_idx = nonground_indices[idx];
-            if (point_idx >= 0 && point_idx < tempGroundCloud->size()) 
+            if (point_idx >= 0 && point_idx < tempGroundCloud->size())
             {
                 cureNonGroundCloud->push_back(tempGroundCloud->points[point_idx]);
             }
         }
 
-        std::vector<std::vector<int>> clusterIndices;
+        pcl::io::savePCDFileBinary(ScansDirectory + to_string(k) + "_ground.pcd", *cureGroundCloud);
+        pcl::io::savePCDFileBinary(ScansDirectory + to_string(k) + "_nonground.pcd", *cureNonGroundCloud);
 
-        CVCHandler::Param param;
-        CVCHandler cvcHandler(param);
-        clusterIndices = cvcHandler.run(cureNonGroundCloud);
-
-        pcl::PointCloud<pcl::PointXYZI>::Ptr clusterCloud(new pcl::PointCloud<pcl::PointXYZI>(*cureNonGroundCloud));
-        // 모든 점의 intensity를 -1로 초기화 (미분류)
-        for (auto& point : clusterCloud->points) 
-        {
-            point.intensity = -1.0f;
-        }
-
-        // 각 클러스터에 라벨 할당
-        for (int clusterId = 0; clusterId < clusterIndices.size(); ++clusterId) 
-        {
-            for (int pointIdx : clusterIndices[clusterId]) 
-            {
-                clusterCloud->points[pointIdx].intensity = static_cast<float>(clusterId);
-            }
-        }
-
-        pcl::io::savePCDFileBinary(ScansDirectory + to_string(k) + "_ground.pcd", *cureGroundCloud); // scan data
-        pcl::io::savePCDFileBinary(ScansDirectory + to_string(k) + "_nonground.pcd", *cureNonGroundCloud); // scan data
-        pcl::io::savePCDFileBinary(ScansDirectory + to_string(k) + "_cluster.pcd", *clusterCloud); // scan data
-
-        
         float percent = static_cast<float>(k + 1) / static_cast<float>(total_frames) * 100;
         printf("Ground Segmentation %d/%d completed (%.1f%%)\n", k+1, total_frames, percent);
         fflush(stdout);
     }
-    
-    pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr kdtree_kf (new pcl::KdTreeFLANN<pcl::PointXYZI>());
-    std::vector<int> kfSearchInd;
-    std::vector<float> kfSearchSqDis;
 
+    // Phase 2: DUFOMap void mapping (ray casting + seenFree classification)
+    ufo::Map<ufo::MapType::SEEN_FREE | ufo::MapType::REFLECTION> map(
+        static_cast<ufo::node_size_t>(0.1),
+        static_cast<ufo::depth_t>(17));
+    map.reserve(50'000'000);
+
+    ufo::IntegrationParams integ;
+    integ.min_range = integration_min_range;
+    integ.max_range = integration_max_range;
+    integ.inflate_hits_dist = 0.5;
+    integ.inflate_unknown = true;
+    integ.ray_passthrough_hits = false;
+    integ.parallel = true;
+
+    for (int k = 0; k < total_frames; k++)
+    {
+        if (g_cancel_save.load()) throw SaveCancelledException{};
+
+        Eigen::Matrix4f TF = createTransformMatrix(keyframePosesUpdated[k]);
+        auto scan = loadPointCloud(ScansDirectory + std::to_string(k) + ".pcd");
+        if (scan->empty()) continue;
+
+        std::vector<int> idxs;
+        pcl::removeNaNFromPointCloud(*scan, *scan, idxs);
+
+        pcl::PointCloud<pcl::PointXYZI>::Ptr wscan(new pcl::PointCloud<pcl::PointXYZI>());
+        pcl::transformPointCloud(*scan, *wscan, TF);
+
+        ufo::PointCloud ucloud;
+        ucloud.reserve(wscan->size());
+        for (auto& p : wscan->points)
+            ucloud.emplace_back(ufo::Point(p.x, p.y, p.z));
+        ufo::Point origin(TF(0,3), TF(1,3), TF(2,3));
+
+        ufo::insertPointCloud(map, ucloud, origin, integ, false);
+
+        float percent = static_cast<float>(k + 1) / static_cast<float>(total_frames) * 100;
+        printf("Void mapping %d/%d completed (%.1f%%)\n", k+1, total_frames, percent);
+        fflush(stdout);
+    }
+    map.propagateModified();
+
+    // Phase 3: nonground point-wise seenFree filtering
     pcl::PointCloud<pcl::PointXYZI>::Ptr staticMapCloud(new pcl::PointCloud<pcl::PointXYZI>());
-    pcl::PointCloud<pcl::PointXYZI>::Ptr optimizedNGMapCloud(new pcl::PointCloud<pcl::PointXYZI>());
     pcl::PointCloud<pcl::PointXYZI>::Ptr staticNGMapCloud(new pcl::PointCloud<pcl::PointXYZI>());
+    pcl::PointCloud<pcl::PointXYZI>::Ptr optimizedNGMapCloud(new pcl::PointCloud<pcl::PointXYZI>());
+
     for (int k = 0; k < total_frames; k++)
     {
         if (g_cancel_save.load()) throw SaveCancelledException{};
 
         Eigen::Matrix4f TF = createTransformMatrix(keyframePosesUpdated[k]);
 
-        pcl::PointCloud<pcl::PointXYZI>::Ptr CureClusterCloud(new pcl::PointCloud<pcl::PointXYZI>());
-        pcl::io::loadPCDFile(ScansDirectory + std::to_string(k) + "_cluster.pcd", *CureClusterCloud);
-        pcl::transformPointCloud(*CureClusterCloud, *CureClusterCloud, TF);
+        pcl::PointCloud<pcl::PointXYZI>::Ptr nongroundCloud(new pcl::PointCloud<pcl::PointXYZI>());
+        pcl::io::loadPCDFile(ScansDirectory + std::to_string(k) + "_nonground.pcd", *nongroundCloud);
 
-        std::vector<std::vector<int>> CurClusterIndices;
-        std::vector<bool> CurDynamicFlag;
-        CurDynamicFlag.assign(CureClusterCloud->points.size(),false);
-        
-        for (size_t idx = 0; idx < CureClusterCloud->points.size(); idx++)
+        pcl::PointCloud<pcl::PointXYZI>::Ptr worldNG(new pcl::PointCloud<pcl::PointXYZI>());
+        pcl::transformPointCloud(*nongroundCloud, *worldNG, TF);
+        *optimizedNGMapCloud += *worldNG;
+
+        const size_t num_points = worldNG->size();
+        std::vector<bool> is_dyn(num_points, false);
+        for (size_t i = 0; i < num_points; ++i)
         {
-            if (CureClusterCloud->points[idx].intensity == 0)   
-            {
-                CurDynamicFlag[idx] = true;
-                continue;
-            }
-            
-            int Cluster_idx = CureClusterCloud->points[idx].intensity;
-            if (Cluster_idx > CurClusterIndices.size())
-            {
-                CurClusterIndices.resize(Cluster_idx);  //intensity 0 값들은 패스하므로 1부터 시작
-            }
-            CurClusterIndices[Cluster_idx-1].push_back(idx);
-        }
-        pcl::PointCloud<pcl::PointXYZI>::Ptr subMapCloud(new pcl::PointCloud<pcl::PointXYZI>());
-        
-        for (int i = keyframePosesUpdated.size()-1; i >= 0; i--)
-        {   
-            double dist = sqrt(pow(keyframePosesUpdated[k].x-keyframePosesUpdated[i].x,2)
-                            +pow(keyframePosesUpdated[k].y-keyframePosesUpdated[i].y,2)
-                            +pow(keyframePosesUpdated[k].z-keyframePosesUpdated[i].z,2));
-            if (dist > 10)  continue;
-            if (i >= k-3 && i <= k+3)  continue;
-            Eigen::Matrix3f rotation;
-            rotation = Eigen::AngleAxisf(keyframePosesUpdated[i].yaw, Eigen::Vector3f::UnitZ())
-                    * Eigen::AngleAxisf(keyframePosesUpdated[i].pitch, Eigen::Vector3f::UnitY())
-                    * Eigen::AngleAxisf(keyframePosesUpdated[i].roll, Eigen::Vector3f::UnitX());
-            Eigen::Quaternionf q(rotation);        
-            Eigen::Matrix4f curr_TF (Eigen::Matrix4f::Identity());
-            curr_TF.block(0,0,3,3) = rotation;
-            curr_TF(0,3) = keyframePosesUpdated[i].x;
-            curr_TF(1,3) = keyframePosesUpdated[i].y;
-            curr_TF(2,3) = keyframePosesUpdated[i].z;
-            
-            pcl::PointCloud<pcl::PointXYZI>::Ptr KeyframeCloud(new pcl::PointCloud<pcl::PointXYZI>());
-            pcl::io::loadPCDFile(ScansDirectory + std::to_string(i) + "_nonground.pcd", *KeyframeCloud);
-            
-            pcl::transformPointCloud(*KeyframeCloud, *KeyframeCloud, curr_TF);
-            *subMapCloud += *KeyframeCloud; 
+            const auto& p = worldNG->points[i];
+            is_dyn[i] = map.seenFree(ufo::Point(p.x, p.y, p.z));
         }
 
-        pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr kdtree_submap (new pcl::KdTreeFLANN<pcl::PointXYZI>());
-        kdtree_submap->setInputCloud(subMapCloud);
-        std::vector<int> closedSearchInd;
-        std::vector<float> closedSearchSqDis;
-        for (size_t p = 0; p < CurClusterIndices.size(); p++)
+        pcl::PointCloud<pcl::PointXYZI>::Ptr staticNG(new pcl::PointCloud<pcl::PointXYZI>());
+        staticNG->reserve(num_points);
+        for (size_t i = 0; i < num_points; ++i)
         {
-            int cnt = 0;
-            for (size_t idx = 0; idx < CurClusterIndices[p].size(); idx++)
-            {
-                kdtree_submap->nearestKSearch(CureClusterCloud->points[CurClusterIndices[p][idx]], 1, closedSearchInd, closedSearchSqDis);
-                if (closedSearchSqDis[0] < 0.2)    cnt++;
-            }
-            int tt = 0;
-            double ratio = static_cast<double>(cnt)/ static_cast<double>(CurClusterIndices[p].size());
-            if (ratio < 0.95)
-            {
-                while (tt < CurClusterIndices[p].size())
-                {
-                    CurDynamicFlag[CurClusterIndices[p][tt]] = true;
-                    tt++;
-                }
-            }
+            if (!is_dyn[i])
+                staticNG->push_back(worldNG->points[i]);
         }
-        
+        *staticNGMapCloud += *staticNG;
+
         pcl::PointCloud<pcl::PointXYZI>::Ptr removalCloud(new pcl::PointCloud<pcl::PointXYZI>());
-        pcl::PointCloud<pcl::PointXYZI>::Ptr removalGlobalCloud(new pcl::PointCloud<pcl::PointXYZI>());
-        for (int i = 0; i < CureClusterCloud->points.size(); i++)
-        {
-            if (!CurDynamicFlag[i])  removalGlobalCloud->points.push_back(CureClusterCloud->points[i]);
-        }
-        pcl::transformPointCloud(*removalGlobalCloud, *removalCloud, TF.inverse());
+        pcl::transformPointCloud(*staticNG, *removalCloud, TF.inverse());
+        pcl::io::savePCDFileBinary(ScansDirectory + to_string(k) + "_nonground.pcd", *removalCloud);
 
-        *staticNGMapCloud += *removalGlobalCloud;
-        *optimizedNGMapCloud += *CureClusterCloud;
+        pcl::PointCloud<pcl::PointXYZI>::Ptr groundCloud(new pcl::PointCloud<pcl::PointXYZI>());
+        pcl::io::loadPCDFile(ScansDirectory + std::to_string(k) + "_ground.pcd", *groundCloud);
 
-        pcl::io::savePCDFileBinary(ScansDirectory + to_string(k) + "_nonground.pcd", *removalCloud); // scan data
+        *removalCloud += *groundCloud;
+        pcl::io::savePCDFileBinary(ScansDirectory + to_string(k) + ".pcd", *removalCloud);
 
-
-        pcl::PointCloud<pcl::PointXYZI>::Ptr GroundCloud(new pcl::PointCloud<pcl::PointXYZI>());
-        pcl::io::loadPCDFile(ScansDirectory + std::to_string(k) + "_ground.pcd", *GroundCloud);
-
-        *removalCloud += *GroundCloud;
-        pcl::io::savePCDFileBinary(ScansDirectory + to_string(k) + ".pcd", *removalCloud); // scan data
-
-        pcl::transformPointCloud(*removalCloud, *removalCloud, TF);
-        *staticMapCloud += *removalCloud;
+        pcl::PointCloud<pcl::PointXYZI>::Ptr worldStatic(new pcl::PointCloud<pcl::PointXYZI>());
+        pcl::transformPointCloud(*removalCloud, *worldStatic, TF);
+        *staticMapCloud += *worldStatic;
 
         float percent = static_cast<float>(k + 1) / static_cast<float>(total_frames) * 100;
         printf("Dynamic Object Removal %d/%d completed (%.1f%%)\n", k+1, total_frames, percent);
         fflush(stdout);
     }
 
-    // 최종 다운샘플링
-    if (!staticMapCloud->empty()) 
+    if (!staticMapCloud->empty())
     {
         pcl::VoxelGrid<pcl::PointXYZI> downSizeMapFilter;
         downSizeMapFilter.setLeafSize(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
@@ -1164,20 +1120,52 @@ void setParams (std::shared_ptr<rclcpp::Node> nh)
     params.th_seeds_v = nh->declare_parameter("posegraph.th_seeds_v", 0.25);
     params.th_dist_v  = nh->declare_parameter("posegraph.th_dist_v", 0.9);
 
-    params.max_range       = nh->declare_parameter("posegraph.max_range", 80.0);
-    params.min_range       = nh->declare_parameter("posegraph.min_range", 1.0);
-    params.uprightness_thr = nh->declare_parameter("posegraph.uprightness_thr", 0.101);
+    params.max_range       = nh->declare_parameter("posegraph.max_r", 80.0);
+    params.min_range       = nh->declare_parameter("posegraph.min_r", 1.0);
+    integration_min_range  = static_cast<float>(params.min_range);
+    integration_max_range  = static_cast<float>(params.max_range);
+    dufo_tau_high          = static_cast<float>(nh->declare_parameter("posegraph.dufo_tau_high", 0.5));
+    dufo_tau_low           = static_cast<float>(nh->declare_parameter("posegraph.dufo_tau_low", 0.1));
+    dufo_max_cluster_points = nh->declare_parameter("posegraph.dufo_max_cluster_points", 5000);
+    dufo_max_cluster_bbox  = static_cast<float>(nh->declare_parameter("posegraph.dufo_max_cluster_bbox", 15.0));
+    params.uprightness_thr = nh->declare_parameter("posegraph.uprightness_thr", 0.707);
 
-    params.RNR_ver_angle_thr = nh->declare_parameter("posegraph.ver_angle_thr", -15.0);
-    params.enable_RNR = false;
+    params.verbose = nh->declare_parameter("posegraph.verbose", false);
+    params.enable_RNR = nh->declare_parameter("posegraph.enable_RNR", true);
+    params.enable_RVPF = nh->declare_parameter("posegraph.enable_RVPF", true);
+    params.enable_TGR = nh->declare_parameter("posegraph.enable_TGR", true);
+    params.RNR_ver_angle_thr = nh->declare_parameter("posegraph.RNR_ver_angle_thr", -15.0);
+    params.RNR_intensity_thr = nh->declare_parameter("posegraph.RNR_intensity_thr", 0.2);
+    params.num_zones = nh->declare_parameter("posegraph.num_zones", 4);
+    params.adaptive_seed_selection_margin =
+        nh->declare_parameter("posegraph.adaptive_seed_selection_margin", -1.2);
 
+    auto toIntVec = [](const std::vector<int64_t>& in) {
+        return std::vector<int>(in.begin(), in.end());
+    };
+    params.num_sectors_each_zone = toIntVec(
+        nh->declare_parameter("posegraph.num_sectors_each_zone", std::vector<int64_t>{16, 32, 54, 32}));
+    params.num_rings_each_zone = toIntVec(
+        nh->declare_parameter("posegraph.num_rings_each_zone", std::vector<int64_t>{2, 4, 4, 4}));
+    params.elevation_thr = nh->declare_parameter("posegraph.elevation_thresholds", std::vector<double>{0.0, 0.0, 0.0, 0.0});
+    params.flatness_thr = nh->declare_parameter("posegraph.flatness_thresholds", std::vector<double>{0.0, 0.0, 0.0, 0.0});
+
+    double uprightness_thr_fine = 0.85;
+    double th_dist_fine = 0.10;
+    double th_seeds_fine = 0.15;
+    int num_min_pts_fine = 8;
+    std::vector<int> num_sectors_each_zone_fine = {16, 16, 27, 16};
     solidModule.setParams(FOV_u, FOV_d, NUM_ANGLE, NUM_RANGE, NUM_HEIGHT, MIN_DISTANCE, MAX_DISTANCE, VOXEL_SIZE, NUM_EXCLUDE_RECENT, NUM_CANDIDATES_FROM_TREE, R_SOLiD_THRES);
 
-    // Construct the main Patchwork++ node
+    // Construct Patchwork++ nodes (coarse then fine re-segment)
     Patchworkpp_ = std::make_unique<patchwork::PatchWorkpp>(params);
-    params.num_sectors_each_zone = {16, 16, 27, 16};
-    params.uprightness_thr = 0.82;
-    Patchworkpp_Fine = std::make_unique<patchwork::PatchWorkpp>(params);
+    patchwork::Params params_fine = params;
+    params_fine.uprightness_thr = uprightness_thr_fine;
+    params_fine.th_dist = th_dist_fine;
+    params_fine.th_seeds = th_seeds_fine;
+    params_fine.num_min_pts = num_min_pts_fine;
+    params_fine.num_sectors_each_zone = num_sectors_each_zone_fine;
+    Patchworkpp_Fine = std::make_unique<patchwork::PatchWorkpp>(params_fine);
 
     gicp.setMaxCorrespondenceDistance(10.0);
     gicp.setNumThreads(0);

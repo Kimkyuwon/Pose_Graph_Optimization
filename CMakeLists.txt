@@ -7,14 +7,17 @@ endif()
 
 SET(CMAKE_BUILD_TYPE "Release")
 
-ADD_COMPILE_OPTIONS(-std=c++17 )
+ADD_COMPILE_OPTIONS(-std=c++20 )
 
 add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fexceptions" )
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -lboost_system -DGTSAM_USE_SYSTEM_EIGEN=ON")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -pthread -fexceptions")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20 -pthread -fexceptions")
+
+# UFOMap (DUFOMap dependency)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/ufomap EXCLUDE_FROM_ALL)
 
 message("Current CPU archtecture: ${CMAKE_SYSTEM_PROCESSOR}")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)" )
@@ -105,10 +108,10 @@ endif()
 
 add_executable(posegraphoptimization src/poseGraphOptimization.cpp
                   include/solid/solid.cpp
-                  include/CurvedVoxelClustering.cpp
                   ${CMAKE_CURRENT_SOURCE_DIR}/../patchwork-plusplus-master/cpp/patchworkpp/src/patchworkpp.cpp)
-target_link_libraries(posegraphoptimization ${PCL_LIBRARIES} ${PYTHON_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam)
+target_link_libraries(posegraphoptimization ${PCL_LIBRARIES} ${PYTHON_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam UFO::Map)
 target_include_directories(posegraphoptimization PRIVATE ${PYTHON_INCLUDE_DIRS})
+target_compile_features(posegraphoptimization PRIVATE cxx_std_20)
 
 # Add dependency on the generated interfaces
 rosidl_target_interfaces(posegraphoptimization ${PROJECT_NAME} "rosidl_typesupport_cpp")
