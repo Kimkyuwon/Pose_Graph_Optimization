@@ -2,14 +2,12 @@
 #include <mutex>
 #include <math.h>
 #include <thread>
-#include <queue>
 #include <fstream>
 #include <csignal>
 #include <optional>
 #include <unistd.h>
+#include <cassert>
 #include <condition_variable>
-#include <unordered_set>
-#include <unordered_map>
 #include <chrono>
 #include <rclcpp/rclcpp.hpp>
 #include <Eigen/Core>
@@ -22,10 +20,7 @@
 #include <pcl/point_types.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
-#include <pcl/search/kdtree.h>
-#include <pcl/search/search.h>
 #include <pcl/console/print.h>
-#include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/conditional_removal.h>
 #include <pcl/filters/extract_indices.h>
@@ -59,6 +54,13 @@
 
 #include <nano_gicp/point_type_nano_gicp.hpp>
 #include <nano_gicp/nano_gicp.hpp>
+
+class NanoGICPExposed : public nano_gicp::NanoGICP<PointType2, PointType2> {
+public:
+    const std::vector<float>& sqDistances() const { return this->sq_distances_; }
+    auto& targetKdTree() { return this->target_kdtree_; }
+};
+
 
 #include "patchwork/patchworkpp.h"
 
@@ -106,10 +108,7 @@ double loop_dist;
 
 // edge measurement params
 pcl::VoxelGrid<pcl::PointXYZI> downSizeFilter_map;
-nano_gicp::NanoGICP<PointType2, PointType2> gicp;
-std::vector<int> pointSearchInd;
-std::vector<float> pointSearchSqDis;
-pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr kdtree (new pcl::KdTreeFLANN<pcl::PointXYZI>());
+NanoGICPExposed gicp;
 std::vector<int> indiceLet;
 double dop_thres = 0;
 
@@ -283,7 +282,7 @@ std::optional<gtsam::Pose3> doGICPVirtualRelative( int _loop_kf_idx, int _curr_k
     pcl::io::loadPCDFile(ScansDirectory + std::to_string(_curr_kf_idx) + ".pcd", *cureKeyframeCloud);
     pcl::io::loadPCDFile(ScansDirectory + std::to_string(_loop_kf_idx) + ".pcd", *targetKeyframeCloud);
     pcl::VoxelGrid<pcl::PointXYZI> downSizeFilter;
-    downSizeFilter.setLeafSize(0.2, 0.2, 0.2);
+    downSizeFilter.setLeafSize(0.4, 0.4, 0.4);
     downSizeFilter.setInputCloud(cureKeyframeCloud);
     downSizeFilter.filter(*cureKeyframeCloud);
     downSizeFilter.setInputCloud(targetKeyframeCloud);
@@ -295,24 +294,20 @@ std::optional<gtsam::Pose3> doGICPVirtualRelative( int _loop_kf_idx, int _curr_k
     pcl::PointCloud<pcl::PointXYZI>::Ptr aligned_cloud(new pcl::PointCloud<pcl::PointXYZI>());
     gicp.align(*aligned_cloud, delta_TF);
     Eigen::Matrix4f edge_TF = gicp.getFinalTransformation();
-    pcl::PointCloud<pcl::PointXYZI>::Ptr matchKeyframeCloud (new pcl::PointCloud<pcl::PointXYZI>());
-    pcl::transformPointCloud(*cureKeyframeCloud, *matchKeyframeCloud, edge_TF);
 
     Eigen::Matrix<double, 6, 6> hessian = gicp.getHessian();
     // PD 보장을 위한 최소 정규화 + H 직접 입력
     double lambda = 1e-6 * hessian.diagonal().array().abs().maxCoeff();
     Eigen::Matrix<double, 6, 6> hessian_reg = hessian + lambda * Eigen::Matrix<double, 6, 6>::Identity();
 
-    kdtree->setInputCloud(targetKeyframeCloud);
-    pcl::PointCloud<pcl::PointXYZI>::Ptr MatchedCloud (new pcl::PointCloud<pcl::PointXYZI>());
-    for (int k = 0; k < matchKeyframeCloud->points.size(); k++)
-    {
-        kdtree->nearestKSearch(matchKeyframeCloud->points[k], 1, pointSearchInd, pointSearchSqDis);
-        if (pointSearchSqDis[0] < 0.1)
-        {
-            MatchedCloud->points.push_back(matchKeyframeCloud->points[k]);
-        }
-    }
+    const auto& sqd = gicp.sqDistances();
+    assert(sqd.size() == aligned_cloud->size());
+    pcl::PointCloud<pcl::PointXYZI>::Ptr MatchedCloud(new pcl::PointCloud<pcl::PointXYZI>());
+    MatchedCloud->reserve(aligned_cloud->size());
+    for (size_t i = 0; i < aligned_cloud->size(); ++i)
+        if (sqd[i] < 0.2f) MatchedCloud->push_back(aligned_cloud->points[i]);
+    MatchedCloud->width = MatchedCloud->size();
+    MatchedCloud->height = 1;
 
     double matching_dop = computeDOP(MatchedCloud, Eigen::Vector3d(edge_TF(0,3),edge_TF(1,3),edge_TF(2,3)));
     double curr_dop = computeDOP(cureKeyframeCloud, Eigen::Vector3d(0,0,0));
@@ -333,13 +328,13 @@ std::optional<gtsam::Pose3> doGICPVirtualRelative( int _loop_kf_idx, int _curr_k
                   [](pcl::PointXYZI& point) { point.intensity = 1.0; });
     std::for_each(targetKeyframeCloud->points.begin(), targetKeyframeCloud->points.end(),
                   [](pcl::PointXYZI& point) { point.intensity = 2.0; });
-    std::for_each(matchKeyframeCloud->points.begin(), matchKeyframeCloud->points.end(),
+    std::for_each(aligned_cloud->points.begin(), aligned_cloud->points.end(),
                   [](pcl::PointXYZI& point) { point.intensity = 3.0; });
 
     pcl::PointCloud<pcl::PointXYZI>::Ptr resultKeyframeCloud (new pcl::PointCloud<pcl::PointXYZI>());
     *resultKeyframeCloud += *cureKeyframeCloud;
     *resultKeyframeCloud += *targetKeyframeCloud;
-    *resultKeyframeCloud += *matchKeyframeCloud;
+    *resultKeyframeCloud += *aligned_cloud;
     pcl::io::savePCDFileBinary(DebugDirectory + to_string(_curr_kf_idx) + "_" + to_string(dop_ratio) + "_" 
     + to_string(matching_dop) + ".pcd", *resultKeyframeCloud); // debug data
     if (dop_ratio < dop_thres && matching_dop < 1.0)
@@ -511,27 +506,27 @@ void performSOLiDLoopClosure(void)
         const int prev_node_idx = SOLiDclosestHistoryFrameID;
         const int curr_node_idx = std::get<0>(detectResult); // because cpp starts 0 and ends n-1
         Eigen::Vector3d dist_vec;
-        dist_vec(0) = keyframePoses[curr_node_idx].x - keyframePoses[prev_node_idx].x;
-        dist_vec(1) = keyframePoses[curr_node_idx].y - keyframePoses[prev_node_idx].y;
-        dist_vec(2) = keyframePoses[curr_node_idx].z - keyframePoses[prev_node_idx].z;
+        dist_vec(0) = keyframePosesUpdated[curr_node_idx].x - keyframePosesUpdated[prev_node_idx].x;
+        dist_vec(1) = keyframePosesUpdated[curr_node_idx].y - keyframePosesUpdated[prev_node_idx].y;
+        dist_vec(2) = keyframePosesUpdated[curr_node_idx].z - keyframePosesUpdated[prev_node_idx].z;
         double dist = dist_vec.norm();
 
         if (dist > loop_dist) return;
 
-        // Eigen::Matrix4f to_TF = get_TF_Matrix(keyframePoses[curr_node_idx]);
-        // Eigen::Matrix4f from_TF = get_TF_Matrix(keyframePoses[prev_node_idx]);
-        // Eigen::Matrix4f delta_TF = from_TF.inverse() * to_TF;
-        Eigen::Matrix4f delta_TF (Eigen::Matrix4f::Identity());
-        Eigen::Matrix3f rotation;
-            rotation = Eigen::AngleAxisf(std::get<2>(detectResult), Eigen::Vector3f::UnitZ())
-                     * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitY())
-                     * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitX());
-        delta_TF.block(0,0,3,3) = rotation;
+        Eigen::Matrix4f to_TF = get_TF_Matrix(keyframePosesUpdated[curr_node_idx]);
+        Eigen::Matrix4f from_TF = get_TF_Matrix(keyframePosesUpdated[prev_node_idx]);
+        Eigen::Matrix4f delta_TF = from_TF.inverse() * to_TF;
+        // Eigen::Matrix4f delta_TF (Eigen::Matrix4f::Identity());
+        // Eigen::Matrix3f rotation;
+        //     rotation = Eigen::AngleAxisf(std::get<2>(detectResult), Eigen::Vector3f::UnitZ())
+        //              * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitY())
+        //              * Eigen::AngleAxisf(0, Eigen::Vector3f::UnitX());
+        // delta_TF.block(0,0,3,3) = rotation;
 
         if (solidLoopBuf.size() <= 10)
         {
             solidLoopBuf.push(std::make_tuple(prev_node_idx, curr_node_idx, delta_TF));
-        }        
+        }
     }
 } // performSOLiDLoopClosure
 
@@ -1167,14 +1162,11 @@ void setParams (std::shared_ptr<rclcpp::Node> nh)
     params_fine.num_sectors_each_zone = num_sectors_each_zone_fine;
     Patchworkpp_Fine = std::make_unique<patchwork::PatchWorkpp>(params_fine);
 
-    gicp.setMaxCorrespondenceDistance(10.0);
+    gicp.setMaxCorrespondenceDistance(3.0);
     gicp.setNumThreads(0);
-    gicp.setCorrespondenceRandomness(15);
-    gicp.setMaximumIterations(20);
+    gicp.setMaximumIterations(5);
     gicp.setTransformationEpsilon(0.01);
     gicp.setEuclideanFitnessEpsilon(0.01);
-    gicp.setRANSACIterations(5);
-    gicp.setRANSACOutlierRejectionThreshold(1.0);
 
     loopLine.type = visualization_msgs::msg::Marker::LINE_LIST;
     loopLine.action = visualization_msgs::msg::Marker::ADD;

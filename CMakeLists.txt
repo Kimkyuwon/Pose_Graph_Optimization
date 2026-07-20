@@ -109,7 +109,14 @@ endif()
 add_executable(posegraphoptimization src/poseGraphOptimization.cpp
                   include/solid/solid.cpp
                   ${CMAKE_CURRENT_SOURCE_DIR}/../patchwork-plusplus-master/cpp/patchworkpp/src/patchworkpp.cpp)
-target_link_libraries(posegraphoptimization ${PCL_LIBRARIES} ${PYTHON_LIBRARIES} ${OpenCV_LIBRARIES} ${OpenMP_CXX_FLAGS} gtsam UFO::Map)
+target_link_libraries(posegraphoptimization
+  ${PCL_LIBRARIES}
+  ${PYTHON_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+  ${OpenMP_CXX_FLAGS}
+  gtsam
+  UFO::Map
+)
 target_include_directories(posegraphoptimization PRIVATE ${PYTHON_INCLUDE_DIRS})
 target_compile_features(posegraphoptimization PRIVATE cxx_std_20)
 
@@ -138,7 +145,7 @@ install(TARGETS posegraphoptimization
   DESTINATION lib/${PROJECT_NAME})
   
 install(
-  DIRECTORY config launch
+  DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
 )
 
