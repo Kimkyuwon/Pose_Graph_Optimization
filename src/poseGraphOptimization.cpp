@@ -55,13 +55,6 @@
 #include <nano_gicp/point_type_nano_gicp.hpp>
 #include <nano_gicp/nano_gicp.hpp>
 
-class NanoGICPExposed : public nano_gicp::NanoGICP<PointType2, PointType2> {
-public:
-    const std::vector<float>& sqDistances() const { return this->sq_distances_; }
-    auto& targetKdTree() { return this->target_kdtree_; }
-};
-
-
 #include "patchwork/patchworkpp.h"
 
 #include <ufo/map/integration/integration.hpp>
@@ -70,6 +63,15 @@ public:
 #include <ufo/map/point_cloud.hpp>
 #include <ufo/map/ufomap.hpp>
 
+#define MEAN_RANGE          (10.0)
+
+class NanoGICPExposed : public nano_gicp::NanoGICP<PointType2, PointType2> {
+    public:
+        const std::vector<float>& sqDistances() const { return this->sq_distances_; }
+        auto& targetKdTree() { return this->target_kdtree_; }
+    };
+
+    
 using namespace std;
 
 using namespace gtsam;
@@ -272,7 +274,13 @@ double computeDOP(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud, Eigen::Vect
     {
         pdop = 100;
     }
-    return pdop;
+    
+    double uz = 0.5 - sin(2*deg2rad(FOV_u))/(4*deg2rad(FOV_u));
+    double g_floor = sqrt(4/(1-uz) + (1/uz));
+    double R_eff_sq = MEAN_RANGE*MEAN_RANGE - blind*blind;
+    double N_typical = 4.0 * M_PI * std::sin(deg2rad(FOV_u)) * R_eff_sq / (2 * 2);
+    double rho = pdop * sqrt(N_typical)/g_floor;\
+    return rho;
 }
 
 std::optional<gtsam::Pose3> doGICPVirtualRelative( int _loop_kf_idx, int _curr_kf_idx, Eigen::Matrix4f delta_TF)
@@ -337,7 +345,7 @@ std::optional<gtsam::Pose3> doGICPVirtualRelative( int _loop_kf_idx, int _curr_k
     *resultKeyframeCloud += *aligned_cloud;
     pcl::io::savePCDFileBinary(DebugDirectory + to_string(_curr_kf_idx) + "_" + to_string(dop_ratio) + "_" 
     + to_string(matching_dop) + ".pcd", *resultKeyframeCloud); // debug data
-    if (dop_ratio < dop_thres && matching_dop < 1.0)
+    if (dop_ratio < dop_thres && matching_dop < 1.2)
     {
         Eigen::Matrix3f edge_rot = edge_TF.block(0, 0, 3, 3);
         Eigen::Quaternionf final_q(edge_rot);
@@ -831,15 +839,16 @@ pcl::PointCloud<pcl::PointXYZI>::Ptr generateStaticMap()
 
     // Phase 2: DUFOMap void mapping (ray casting + seenFree classification)
     ufo::Map<ufo::MapType::SEEN_FREE | ufo::MapType::REFLECTION> map(
-        static_cast<ufo::node_size_t>(0.1),
+        static_cast<ufo::node_size_t>(0.05),
         static_cast<ufo::depth_t>(17));
     map.reserve(50'000'000);
 
     ufo::IntegrationParams integ;
     integ.min_range = integration_min_range;
     integ.max_range = integration_max_range;
-    integ.inflate_hits_dist = 0.5;
-    integ.inflate_unknown = true;
+    integ.inflate_hits_dist = 0.3;
+    integ.inflate_unknown = 2;   
+    integ.inflate_unknown_compensation = true;
     integ.ray_passthrough_hits = false;
     integ.parallel = true;
 
